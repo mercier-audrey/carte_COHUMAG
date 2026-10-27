@@ -1,0 +1,1377 @@
+ <!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<title>Carte interactive</title>
+<meta name="referrer" content="no-referrer-when-downgrade">
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://unpkg.com/@turf/turf/turf.min.js"></script>
+<script src="https://unpkg.com/papaparse@5/papaparse.min.js"></script>
+<style>
+#map { height: 65vh; }
+#map-instruction {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+  z-index: 1000; background: rgba(255,255,255,0.92);
+  padding: 6px 14px; border-radius: 5px; border: 1.5px solid #181818;
+  font-size: 15px; color: #121212; pointer-events: none;
+  text-align: center; white-space: nowrap;
+}
+#info { display: flex; gap: 10px; padding: 10px; border-top: 1px solid #ccc; }
+.actor-row {cursor: pointer;}
+.panel { flex: 1; min-width: 0; }
+.panel h4 { margin: 0 0 6px 0; display: flex; justify-content: space-between; align-items: center; }
+.panel h4 button { font-size: 12px; padding: 2px 7px; cursor: pointer; background: #3388ff; color: #fff; border: none; border-radius: 3px; }
+table { border-collapse: collapse; width: 100%; font-size: 12px; }
+td, th { border: none; padding: 5px; }
+th { background: #f0f0f0; }
+.badge { display: inline-block; padding: 2px 6px; border-radius: 1px; font-size: 10px; font-weight: bold; color: #fff; }
+.badge-envisagee     { background: #ff7f00; }
+.badge-mise-en-place { background: #4daf4a; }
+.badge-autre         { background: #999; }
+.fiche-link { font-size: 12px; color: #3388ff; text-decoration: none; }
+.fiche-link:hover { text-decoration: underline; }
+.espace-header { font-weight: bold; background: #e8e8e8; padding: 4px 6px;
+  margin-top: 8px; border-left: 4px solid #555; font-size: 12px; }
+.legend-item { display: flex; align-items: center; gap: 1px; font-size: 12px; margin: 2px 0; }
+.legend-box { width: 10px; height: 10px; border: none; flex-shrink: 0; }
+.legend-group { margin-bottom: 1px; }
+.legend-group-title {
+  display: flex; align-items: center; gap: 1px;
+  font-size: 12px; font-weight: bold;
+  cursor: pointer; margin: 1px 0 1px 0;
+}
+.legend-group-title.collapsed::before {
+  content: "⏵";}
+.legend-group-title:not(.collapsed)::before {
+  content: "⏷";}
+.legend-group-title input { cursor: pointer; }
+.legend-children { padding-left: 16px; }
+.legend-group-title.no-arrow::before,
+.legend-group-title.no-arrow::after {
+  display: none !important;
+}
+.legend-section {
+  border-top: 1px solid #555;
+  margin-top: 8px;
+  padding-top: 6px;
+}
+
+.legend-section:first-child {
+  border-top: none;
+  margin-top: 0;
+}
+
+.legend-section-title {
+  font-size: 13px;
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+.parcel-label {
+  background: transparent; border: none; box-shadow: none;
+  color: #0a0a0a; font-size: 11px; font-weight: normal; text-align: center;
+}
+.espace-legend-item {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 12px; margin: 2px 0;
+  cursor: pointer; border-radius: 1px; padding: 2px 3px;
+  transition: background 0.15s;
+}
+.espace-legend-item:hover { background: #f0f0f0; }
+.espace-legend-item.active { background: #e8f4e8; font-weight: bold; }
+.north-arrow {
+  background: white;
+  padding: 8px 8px;
+  border: none;
+  font-size: 18px;
+  font-weight: bold;
+  text-align: center;
+  line-height: 18px;
+}
+#custom-scrollbar {
+  position: fixed; top: 0; right: 0; width: 20px; height: 100vh;
+  background: #eeeeee; z-index: 9999;
+}
+#custom-scrollbar-thumb {
+  position: absolute; right: 2px; width: 16px; min-height: 50px;
+  background: #999; border-radius: 3px; cursor: grab;
+}
+#custom-scrollbar-thumb:hover { background: #777; }
+#custom-scrollbar-thumb:active { cursor: grabbing; }
+#main-layout {
+  display: grid;
+  grid-template-columns: 56% 41%;
+  height: 98vh;
+  gap: 10px;
+}
+
+#map-container {
+  position: relative;
+  min-width: 0;
+}
+
+#map {
+  width: 100%;
+  height: 100%;
+}
+
+#info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0;
+  border-top: none;
+  min-width: 0;
+  overflow: hidden;
+}
+
+#actors-panel,
+#solutions-panel {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+#legend-container {
+  position: absolute;
+  top: 50px;
+  right: 10px;
+  z-index: 1000;
+  width: 320px;
+  max-height: calc(100% - 20px);
+  overflow-y: auto;
+}
+
+#legend-container .leaflet-control {
+  margin: 0;
+  width: 100%;
+}
+
+.panel h4 {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: white;
+  margin: 0;
+  padding: 6px 0;
+}
+</style>
+</head>
+<body>
+
+<div id="custom-scrollbar">
+  <div id="custom-scrollbar-thumb"></div>
+</div>
+
+<div id="main-layout">
+
+  <div id="map-container">
+    <div id="map"></div>
+    <div id="map-instruction">
+      Pour afficher les acteurs et propositions d’action sous votre clic, cliquez à l’intérieur de la province d'Ifrane (polygone noir).
+    </div>
+    <div id="legend-container"></div>
+  </div>
+
+  <div id="info">
+
+    <div class="panel" id="actors-panel">
+      <h4>Acteurs de la province d'Ifrane
+        <button onclick="exportCSV('left')">⬇ Cliquez pour exporter ces acteurs</button>
+      </h4>
+      <div id="table-left">Pour afficher les informations des acteurs de la province, cliquez sur leur périmètre sur la carte.</div>
+    </div>
+
+    <div class="panel" id="solutions-panel">
+      <h4>Propositions d'action par espace
+        <button onclick="exportCSV('right')">⬇ Cliquez pour exporter ces propositions d'action</button>
+      </h4>
+      <div id="table-right">Pour afficher les propositions d'action, cliquez sur un espace dans la légende ou sur son périmètre sur la carte.</div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+
+// ════════════════════════════════════════════════════════════
+// CONFIG
+// ════════════════════════════════════════════════════════════
+
+const ESPACE_COLORS = {
+  "Gouvernance":                       "transparent",
+  "Plateau supérieur":                 "#E69F00",
+  "Milieux forestiers":                "#009E73",
+  "Interfaces forêts / zone agricole": "#984EA3"
+};
+const ESPACE_ORDER = [
+  "Gouvernance", "Plateau supérieur",
+  "Milieux forestiers", "Interfaces forêts / zone agricole"
+];
+const ALWAYS_TRANSPARENT = ["Gouvernance"];
+const PARCELLE_LABEL_ZOOM = 13;
+
+const SCALE_ORDER = {
+  province:    ['amepn','dpanef','spmoca','dpa','pni','mgt'],
+  commune: ['cca','trib','anoc','cpf','ags','ceri','anar','arbo'],
+};
+const ACTOR_SORT_ORDER = [
+  ...SCALE_ORDER.province,
+  ...SCALE_ORDER.commune
+];
+
+const LAYERS_CONFIG = [
+  { url: '../data_test/cca.geojson',                           color: "#E69F00", fillColor: "#E69F00",    groupKey: 'cca',     panel: 'left', zIndex: 1 },
+  { url: '../data_test/dpa.geojson',                           color: "#D55E00", fillColor: "transparent",groupKey: 'dpa',     panel: 'left', zIndex: 2 },
+  { url: '../data_test/spmoca.geojson',                        color: "#F0E442", fillColor: "transparent",dashArray: "5,5",   groupKey: 'spmoca',  panel: 'left', zIndex: 3 },
+  { url: '../data_test/dpanef.geojson',                        color: "#0072B2", fillColor: "transparent",dashArray: "12,12", groupKey: 'dpanef',  panel: 'left', zIndex: 4 },
+  { url: '../data_test/cpf.geojson',                           color: "#56B4E9", fillColor: "#56B4E9",    groupKey: 'cpf',     panel: 'left', zIndex: 5 },
+  { url: '../data_test/pni.geojson',                           color: "#009E73", fillColor: "transparent",groupKey: 'pni',     panel: 'left', zIndex: 6,  hasPattern: 'horizontal' },
+  { url: '../data_test/amepn.geojson',                         color: "#00A087", fillColor: "transparent",dashArray: "5,5",   groupKey: 'amepn',   panel: 'left', zIndex: 7 },
+  { url: '../data_test/anoc.geojson',                          color: "#CC79A7", fillColor: "#CC79A7",    groupKey: 'anoc',    panel: 'left', zIndex: 8 },
+  { url: '../data_test/ags.geojson',                           color: "#8C510A", fillColor: "transparent",groupKey: 'ags',     panel: 'left', zIndex: 9 },
+ // { url: '../data_test/tribus.geojson',                       color: "#00A6A6", fillColor: "#00A6A6",    groupKey: 'trib',    panel: 'left', zIndex: 10, hasPattern: 'vertical' },
+  { url: '../data_test/magots.geojson',                        color: "#A66E00", fillColor: "#A66E00",    groupKey: 'mgt',     panel: 'left', zIndex: 11 },
+    { url: '../data_test/bergers_eleveurs.geojson',              color: "#8C510A", fillColor: "transparent",    groupKey: 'berg',    panel: 'left', zIndex: 17},
+  { url: '../data_test/arboriculteurs.geojson',                color: "#A23E48", fillColor: "#A23E48",    groupKey: 'arbo',    panel: 'left', zIndex: 12 },
+  { url: '../data_test/association_anarouz.geojson',           color: "#E78AC3", fillColor: "transparent",groupKey: 'anar',    panel: 'left', zIndex: 13 },
+  { url: '../data_test/association_producteur_cerise.geojson', color: "#0072B2", fillColor: "transparent",dashArray: "10,10", groupKey: 'ceri',    panel: 'left', zIndex: 14 },
+  { url: '../data_test/reserve_faune.geojson',                 color: "#009E73", fillColor: "#009E73", groupKey: 'reserve',panel: 'left', zIndex: 15,isTerritorial: true},
+  { url: '../data_test/parcellaire_forestier.geojson',         color: "#2c2c2c", fillColor: "transparent",dashArray: "5,3",  groupKey: 'parcelle',panel: 'left', zIndex: 16, isParcelle: true },
+  
+  { url: '../data_test/espaces_solutions.geojson',             color: null,      fillColor: null,         groupKey: 'espaces', panel: 'right', postProcess: sortEspaces }
+];
+
+
+const LEGEND_GROUPS = [
+  {
+    section: "Acteurs",
+    id: 'g-cerise',
+    label: "Usagers des vergers de cerisiers",
+    layers: [
+      { key: 'ceri', label: "Association des producteurs de cerises", color: "#0072B2", fillColor: "transparent", dashArray: "10,10" },
+      { key: 'anar', label: "Association Anarouz", color: "#E78AC3", fillColor: "transparent" },
+      { key: 'arbo', label: "Arboriculteurs", color: "#A23E48", fillColor: "#A23E48" }
+    ]
+  },
+
+  {
+    section: "Acteurs",
+    id: 'g-faune',
+    label: "Faune",
+    layers: [
+      { key: 'mgt', label: "Magots", color: "#A66E00", fillColor: "#A66E00" }
+    ]
+  },
+
+//  {
+//    section: "Acteurs",
+//    id: 'g-cout',
+//    label: "Organisations coutumières",
+//    layers: [
+//      { key: 'trib', label: "Tribus", color: "#00A6A6", fillColor: "#00A6A6" }
+//    ]
+//  },
+{
+    section: "Acteurs",
+    id: 'g-bergers',
+    label: "Bergers et éleveurs",
+    layers: [
+      { key: 'berg', label: "Bergers et éleveurs", color: "#8C510A", fillColor: "transparent" }
+    ]
+  },
+
+  {
+    section: "Acteurs",
+    id: 'g-past',
+    label: "Associations liées au pastoralisme",
+    layers: [
+      { key: 'ags', label: "AGS (Associations de Gestion Sylvopastorale)", color: "#8C510A", fillColor: "transparent" },
+      { key: 'anoc', label: "ANOC (Association Nationale des Ovins et Caprins)", color: "#CC79A7", fillColor: "#CC79A7" }
+    ]
+  },
+
+  {
+    section: "Acteurs",
+    id: 'g-bio',
+    label: "Association liée à la biodiversité",
+    layers: [
+      { key: 'amepn', label: "AMEPN", color: "#00A087", fillColor: "transparent", dashArray: "5,5" }
+    ]
+  },
+
+  {
+    section: "Acteurs",
+    id: 'g-foret',
+    label: "Services publics liés aux espaces forestiers",
+    layers: [
+      { key: 'pni', label: "PNI (Parc National d'Ifrane)", color: "#009E73", fillColor: "transparent" },
+      { key: 'cpf', label: "CPF (Centre de Protection de la Forêt)", color: "#56B4E9", fillColor: "#56B4E9" },
+      { key: 'dpanef', label: "DPANEF (Direction Provinciale de l'ANEF)", color: "#0072B2", fillColor: "transparent" }
+    ]
+  },
+
+  {
+    section: "Acteurs",
+    id: 'g-agri',
+    label: "Services publics liés aux espaces agricoles",
+    layers: [
+      { key: 'cca', label: "CCA (Centre de Conseil Agricole)", color: "#E69F00", fillColor: "#E69F00" },
+      { key: 'spmoca', label: "SPMOCA (Service Provincial de Mise en Oeuvre du Conseil Agricole)", color: "#F0E442", fillColor: "transparent", dashArray: "5,5" },
+      { key: 'dpa', label: "DPA (Direction Provinciale de l'Agriculture)", color: "#D55E00", fillColor: "transparent" }
+    ]
+  },
+
+  {
+  section: "Données territoriales",
+  id: 'g-territorial',
+  label: "Gestion de la forêt",
+  layers: [
+    {
+      key: 'reserve',
+      label: "Réserves de faune",
+      color: "#009E73",
+      fillColor: "#009E73"
+    },
+    {
+      key: 'parcelle',
+      label: "Parcellaire forestier (zoomez pour afficher le numéro de parcelle)",
+      color: "#2c2c2c",
+      fillColor: "transparent",
+      dashArray: "5,3"
+    }
+  ]
+},
+
+  {
+    section: "Propositions d'actions",
+    id: 'g-espaces',
+    label: "Propositions d'action par espace",
+    layers: []
+  }
+];
+
+
+// ════════════════════════════════════════════════════════════
+// CARTE
+// ════════════════════════════════════════════════════════════
+
+const map = L.map('map', {
+  worldCopyJump: false,
+  maxBounds: [[-90, -180], [90, 180]],
+  maxBoundsViscosity: 1.0
+}).setView([33.35, -5.05], 10);
+
+L.control.scale({
+  position:"bottomleft",
+  maxWidth: 300,
+  imperial: false,
+  metric: true
+}).addTo(map);
+
+const north = L.control({ position: 'topleft' });
+
+north.onAdd = function () {
+  const div = L.DomUtil.create('div', 'north-arrow');
+  div.innerHTML = 'N<br>🠭';
+  return div;
+};
+
+north.addTo(map);
+
+// Augmente la tolérance de mouvement avant que le clic soit interprété comme un drag
+if (map.dragging && map.dragging._draggable) {
+  map.dragging._draggable.options.clickTolerance = 50;
+}
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap', noWrap: true
+}).addTo(map);
+
+// ════════════════════════════════════════════════════════════
+// PATTERNS SVG
+// ════════════════════════════════════════════════════════════
+
+const SVG_PATTERNS = [
+  { id: 'pat-horizontal', color: "#295b25", type: 'horizontal' },
+  { id: 'pat-vertical',   color: "#8C510A", type: 'vertical'   }
+];
+
+function ensureSVGPatterns() {
+  const svg = document.querySelector(".leaflet-overlay-pane svg");
+  if (!svg || svg.querySelector("#pat-horizontal")) return;
+  const ns = "http://www.w3.org/2000/svg";
+  const defs = document.createElementNS(ns, "defs");
+  SVG_PATTERNS.forEach(({ id, color, type }) => {
+    const pat = document.createElementNS(ns, "pattern");
+    pat.setAttribute("id", id);
+    pat.setAttribute("width","8"); pat.setAttribute("height","8");
+    pat.setAttribute("patternUnits","userSpaceOnUse");
+    const bg = document.createElementNS(ns, "rect");
+    bg.setAttribute("width","8"); bg.setAttribute("height","8");
+    bg.setAttribute("fill", color); bg.setAttribute("opacity","0.15");
+    const line = document.createElementNS(ns, "line");
+    if (type === 'horizontal') {
+      line.setAttribute("x1","0"); line.setAttribute("y1","8");
+      line.setAttribute("x2","16"); line.setAttribute("y2","8");
+    } else {
+      line.setAttribute("x1","8"); line.setAttribute("y1","0");
+      line.setAttribute("x2","8"); line.setAttribute("y2","16");
+    }
+    line.setAttribute("stroke", color); line.setAttribute("stroke-width","1");
+    pat.appendChild(bg); pat.appendChild(line);
+    defs.appendChild(pat);
+  });
+  svg.insertBefore(defs, svg.firstChild);
+}
+
+function applyPattern(layer, patternId, mode) {
+  setTimeout(() => {
+    ensureSVGPatterns();
+    const el = layer.getElement ? layer.getElement() : null;
+    if (!el) return;
+    const color = layer.layerColor;
+    if (mode === 'faded') {
+      el.style.fill          = `url(#${patternId})`;
+      el.style.fillOpacity   = "1";
+      el.style.stroke        = color;
+      el.style.strokeOpacity = "1";
+      el.style.strokeWidth   = "1";
+    } else if (mode === 'highlight') {
+      const svg = el.closest("svg");
+      if (svg) {
+        const ns  = "http://www.w3.org/2000/svg";
+        let defs  = svg.querySelector("defs");
+        if (!defs) { defs = document.createElementNS(ns,"defs"); svg.insertBefore(defs, svg.firstChild); }
+        const hid = patternId + "-hl";
+        if (!defs.querySelector("#" + hid)) {
+          const type = patternId.includes("horizontal") ? "horizontal" : "vertical";
+          const pat  = document.createElementNS(ns, "pattern");
+          pat.setAttribute("id", hid);
+          pat.setAttribute("width","8"); pat.setAttribute("height","8");
+          pat.setAttribute("patternUnits","userSpaceOnUse");
+          const bg = document.createElementNS(ns,"rect");
+          bg.setAttribute("width","8"); bg.setAttribute("height","8");
+          bg.setAttribute("fill", color); bg.setAttribute("opacity","0.45");
+          const line = document.createElementNS(ns,"line");
+          if (type === "horizontal") {
+            line.setAttribute("x1","0"); line.setAttribute("y1","8");
+            line.setAttribute("x2","16"); line.setAttribute("y2","8");
+          } else {
+            line.setAttribute("x1","8"); line.setAttribute("y1","0");
+            line.setAttribute("x2","8"); line.setAttribute("y2","16");
+          }
+          line.setAttribute("stroke", color); line.setAttribute("stroke-width","3");
+          pat.appendChild(bg); pat.appendChild(line);
+          defs.appendChild(pat);
+        }
+        el.style.fill          = `url(#${hid})`;
+        el.style.fillOpacity   = "1";
+        el.style.stroke        = color;
+        el.style.strokeOpacity = "1";
+        el.style.strokeWidth   = "3";
+      }
+    } else {
+      el.style.fill          = `url(#${patternId})`;
+      el.style.fillOpacity   = "1";
+      el.style.stroke        = color;
+      el.style.strokeOpacity = "1";
+      el.style.strokeWidth   = "1";
+    }
+  }, 0);
+}
+
+fetch('../data_test/zone_etude.geojson')
+  .then(r => r.json())
+  .then(data => {
+    L.geoJSON(data, {style: { color: "#2c2c2c",fill: true, fillColor: "#FFFFFF",fillOpacity: 0.5,weight: 5,opacity: 1}
+    }).addTo(map);
+  })
+  .catch(e => console.warn("Erreur chargement zone_etude.geojson :", e));
+
+// ════════════════════════════════════════════════════════════
+// ÉTAT
+// ════════════════════════════════════════════════════════════
+
+const groups = {};
+LAYERS_CONFIG.forEach(({ groupKey }) => {
+  if (!groups[groupKey]) groups[groupKey] = L.layerGroup().addTo(map);
+});
+
+const parcelleTooltipLayers = [];
+let parcelleVisible   = true;
+const layersByPanel   = { left: [], right: [] };
+let clickMarker       = null;
+let clickPoint        = null;   // turf point du dernier clic, persistant
+let selectedLeft      = [];
+let selectedRight     = [];
+let selectedSolutions = [];
+let solutionsData     = [];
+let activeEspaceFilter = null;
+let hoveredActor      = null;
+
+// ════════════════════════════════════════════════════════════
+// STYLES
+// ════════════════════════════════════════════════════════════
+
+function isTransparent(feature) {
+  return ALWAYS_TRANSPARENT.includes(feature.properties.nom_espace);
+}
+
+function styleBase(color, fillColor, dashArray = null, fillOpacity = 0.15) {
+  return { color, weight: 1, fillOpacity: 0.10 , dashArray, opacity: 0.65 };
+}
+
+function styleEspace(feature) {
+  const color  = ESPACE_COLORS[feature.properties.nom_espace] || "#aaa";
+  const hidden = isTransparent(feature);
+  return { color, weight: 2, fillColor: color,
+    fillOpacity: hidden ? 0 : 0.2, opacity: hidden ? 0 : 1 };
+}
+
+function styleHighlight(layer) {
+  const color     = layer.layerColor || "#3388ff";
+  const fillColor = layer.layerFillColor || color;
+  const dashArray = layer.layerDashArray || null;
+  const hidden    = isTransparent(layer.feature);
+  return { color, fillColor, dashArray, weight: 4,
+    fillOpacity: 0.65, opacity: 1 };
+}
+
+function styleFaded(layer) {
+  const color     = layer.layerColor || "#3388ff";
+  const fillColor = layer.layerFillColor || color;
+  const dashArray = layer.layerDashArray || null;
+  const hidden    = isTransparent(layer.feature);
+  return { color, fillColor, dashArray, weight: 1,
+    fillOpacity: 0.10, opacity: 0.65 };
+}
+
+// ════════════════════════════════════════════════════════════
+// CHARGEMENT DES DONNÉES
+// ════════════════════════════════════════════════════════════
+
+function sortEspaces(layer) {
+  const sublayers = layer.getLayers();
+  sublayers.sort((a, b) =>
+    ESPACE_ORDER.indexOf(a.feature.properties.nom_espace || "") -
+    ESPACE_ORDER.indexOf(b.feature.properties.nom_espace || "")
+  );
+  layer.clearLayers();
+  sublayers.forEach(l => layer.addLayer(l));
+}
+
+function addGeoJSONLayer({ url, color, fillColor, dashArray, groupKey, panel, postProcess, isParcelle, hasPattern, zIndex }) {
+  fetch(url)
+    .then(r => r.json())
+    .then(data => {
+      const layer = L.geoJSON(data, {
+        style: f => groupKey === 'espaces'
+          ? styleEspace(f)
+          : styleBase(color, fillColor, dashArray, groupKey === 'parcelle' ? 0.2 : 0.05),
+        onEachFeature: (f, l) => {
+          l.layerColor     = groupKey === 'espaces'
+            ? (ESPACE_COLORS[f.properties.nom_espace] || "#aaa") : color;
+          l.layerFillColor = groupKey === 'espaces'
+            ? (ESPACE_COLORS[f.properties.nom_espace] || "#aaa") : fillColor;
+          l.layerDashArray = dashArray || null;
+          l.layerGroupKey  = groupKey;
+          l.layerZIndex    = zIndex || 0;
+          l.hasPattern     = hasPattern || null;
+          l.defaultStyle   = () => groupKey === 'espaces'
+            ? styleEspace(f)
+            : styleBase(color, fillColor, dashArray, groupKey === 'parcelle' ? 0.2 : 0.05);
+          l.isEspace       = (panel === 'right');
+          const props      = f.properties;
+         l.tooltipLabel = groupKey === 'parcelle'
+          ? String(props.parcelle_num || '')
+          : String(
+              props.nom_espace ||
+              props.acteur ||
+              Object.values(props).find(v => v) ||
+              ""
+            );
+          if (isParcelle) {
+            const texte = [props.parcelle_num, props.nom_zone].filter(Boolean).join('<br>');
+            if (texte) {
+              l.bindTooltip(texte, { permanent: true, direction: "center", className: "parcel-label" });
+              parcelleTooltipLayers.push(l);
+              
+            }
+          }
+          if (hasPattern) {
+            l.on('add', () => applyPattern(l, `pat-${hasPattern}`, 'normal'));
+          }
+        }
+      });
+            if (postProcess) postProcess(layer);
+      layer.addTo(groups[groupKey]);
+      layersByPanel[panel].push(layer);
+
+      // Afficher les labels uniquement si le niveau de zoom le permet
+      if (isParcelle) updateParcelleLabels();
+    })
+    .catch(e => console.warn(`Erreur chargement ${url}:`, e));
+}
+
+function updateParcelleLabels() {
+  const show = parcelleVisible && map.getZoom() >= PARCELLE_LABEL_ZOOM;
+  parcelleTooltipLayers.forEach(l => {
+    const tt = l.getTooltip();
+    if (tt) show ? l.openTooltip() : l.closeTooltip();
+  });
+}
+map.on('zoomend', updateParcelleLabels);
+
+fetch('../data_test/descriptions_solutions.csv')
+  .then(r => r.text())
+  .then(text => {
+    solutionsData = Papa.parse(text, {
+      header: true, delimiter: ",", skipEmptyLines: true
+    }).data;
+  })
+  .catch(e => console.warn("descriptions_solutions.csv introuvable", e));
+
+LAYERS_CONFIG.forEach(addGeoJSONLayer);
+// ════════════════════════════════════════════════════════════
+// ORDRE D'AFFICHAGE FIXE
+// ════════════════════════════════════════════════════════════
+
+function enforceLayerOrder() {
+  const orderedKeys = LAYERS_CONFIG
+    .slice().sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0))
+    .map(c => c.groupKey)
+    .filter((k, i, arr) => arr.indexOf(k) === i);
+  orderedKeys.forEach(key => {
+    if (map.hasLayer(groups[key])) {
+      groups[key].remove();
+      groups[key].addTo(map);
+    }
+  });
+}
+
+// ════════════════════════════════════════════════════════════
+// RECALCUL SÉLECTION depuis clickPoint
+// Recalcule selectedLeft/selectedRight en tenant compte
+// des couches actuellement visibles (cochées)
+// ════════════════════════════════════════════════════════════
+
+function recomputeSelection() {
+  if (!clickPoint) return;
+
+  selectedLeft  = [];
+  selectedRight = [];
+
+  ['left','right'].forEach(panel => {
+    layersByPanel[panel].forEach(geoLayer => {
+      // Retrouver le groupKey via layerGroupKey stocké sur les sous-layers
+      // On lit le groupKey du premier sous-layer disponible
+      const sublayers = geoLayer.getLayers();
+      if (!sublayers.length) return;
+      const groupKey = sublayers[0].layerGroupKey;
+      if (groupKey === 'parcelle' || groupKey === 'reserve') return;
+
+      // Ne traiter que les groupes visibles (cochés)
+      if (!groupKey || !map.hasLayer(groups[groupKey])) return;
+
+      sublayers.forEach(l => {
+        try {
+          if (turf.booleanPointInPolygon(clickPoint, l.feature))
+            panel === 'left' ? selectedLeft.push(l) : selectedRight.push(l);
+        } catch (_) {}
+      });
+    });
+  });
+}
+
+// ════════════════════════════════════════════════════════════
+// APPLICATION DES STYLES (centralisée)
+// ════════════════════════════════════════════════════════════
+
+function applyAllStyles() {
+
+  const anySelected = (selectedLeft.length + selectedRight.length) > 0;
+
+  ['left','right'].forEach(panel => {
+
+    layersByPanel[panel].forEach(geoLayer => {
+
+      const sublayers = geoLayer.getLayers();
+
+      if (!sublayers.length) return;
+
+      const groupKey = sublayers[0].layerGroupKey;
+
+      // Une couche décochée n'est pas stylée :
+      // elle est simplement masquée par son layerGroup.
+      if (!groupKey || !map.hasLayer(groups[groupKey])) return;
+
+      geoLayer.eachLayer(l => {
+
+        // Le parcellaire reste toujours dans son style normal
+        // et n'est jamais sélectionné ni "faded".
+        if (l.layerGroupKey === 'parcelle'|| l.layerGroupKey === 'reserve') {
+          l.setStyle(l.defaultStyle());
+          return;
+        }
+
+        const isHovered = panel === 'left' && hoveredActor === l;
+        const isSel = (panel === 'left' ? selectedLeft : selectedRight).includes(l);
+
+        if (l.hasPattern) {
+
+          applyPattern(
+            l,
+            `pat-${l.hasPattern}`,
+            isHovered
+              ? 'highlight'
+              : (panel === 'left' && hoveredActor)
+                ? 'faded'
+                : isSel
+                  ? 'highlight'
+                  : anySelected
+                    ? 'faded'
+                    : 'normal'
+          );
+
+        } else {
+
+          l.setStyle(
+            isHovered
+              ? styleHighlight(l)
+              : (panel === 'left' && hoveredActor)
+                ? styleFaded(l)
+                : isSel
+                  ? styleHighlight(l)
+                  : anySelected
+                    ? styleFaded(l)
+                    : l.defaultStyle()
+          );
+
+        }
+
+      });
+
+    });
+
+  });
+
+}
+
+// ════════════════════════════════════════════════════════════
+// MISE À JOUR COMPLÈTE après toggle légende
+// Recalcule sélection + styles + tableaux, conserve le point
+// ════════════════════════════════════════════════════════════
+
+function updateAfterLegendToggle() {
+  setTimeout(() => {
+
+    enforceLayerOrder();
+
+    // Recalculer la sélection sous le même point de clic,
+    // en fonction des couches actuellement cochées
+    recomputeSelection();
+
+    // Mettre à jour le rendu cartographique
+    applyAllStyles();
+
+    // Mettre à jour les tableaux avec la nouvelle sélection
+    updateTableLeft(selectedLeft);
+
+    if (!activeEspaceFilter) {
+      updateTableRight(selectedRight);
+    }
+
+    updateLegendBold();
+    updateParcelleLabels();
+
+    // Conserver le point de clic au-dessus des couches
+    if (clickMarker) {
+      if (map.hasLayer(clickMarker)) {
+        clickMarker.bringToFront();
+      } else {
+        clickMarker.addTo(map);
+        clickMarker.bringToFront();
+      }
+    }
+
+  }, 50);
+}
+// ════════════════════════════════════════════════════════════
+// LÉGENDE GROUPÉE
+// ════════════════════════════════════════════════════════════
+
+const legend = L.control({ position: 'topright' });
+legend.onAdd = function () {
+  const div = document.createElement('div');
+  L.DomEvent.disableClickPropagation(div);
+  L.DomEvent.disableScrollPropagation(div);
+  div.style.cssText =
+  "background:white;padding:10px;border:none;border-radius:1px;" +
+  "font-size:11px;width:100%;box-sizing:border-box;";
+
+  let html = `<b style='font-size:14px'>Légende interactive</b>
+    <div style="font-size:12px;color:#555;margin:4px 0 6px 0;font-style:italic">
+       Cochez ou décochez les acteurs/espaces pour afficher ou masquer leur périmètre sur la carte.
+    </div>
+    <div class="legend-group-title no-arrow" style="margin-bottom:8px">
+      <input type="checkbox" id="chk-all" checked/>
+      <span style="font-size:12px;font-weight:normal">Tout afficher / masquer</span>
+    </div>`;
+
+  let currentSection = null;
+
+LEGEND_GROUPS.forEach(grp => {
+
+  if (grp.section !== currentSection) {
+    currentSection = grp.section;
+
+    html += `
+      <div class="legend-section">
+        <div class="legend-section-title">${grp.section}</div>
+      </div>
+    `;
+  }
+
+  if (grp.id === 'g-espaces') {
+      html += `<div class="legend-group">
+      <div class="legend-group-title" id="title-${grp.id}">
+        <input type="checkbox" id="${grp.id}" checked/>
+        <span>${grp.label}</span>
+      </div>
+        <div class="legend-children" id="children-${grp.id}">`;
+      // Tous les espaces sont cliquables (y compris Gouvernance)
+      ESPACE_ORDER.forEach(nom => {
+        const c      = ESPACE_COLORS[nom] || "#aaa";
+        const hidden = ALWAYS_TRANSPARENT.includes(nom);
+        html += `<div class="espace-legend-item" data-espace="${nom}"
+            id="esplegitem-${nom.replace(/\W/g,'_')}">
+          <div class="legend-box" style="background:${c};opacity:${hidden?0.15:0.5};border:1px solid ${c}"></div>
+          <span>${nom}${hidden ? ' (invisible)' : ''}</span>
+        </div>`;
+      });
+      html += `</div></div>`;
+    } else {
+     html += `<div class="legend-group">
+      <div class="legend-group-title">
+        <input type="checkbox" id="${grp.id}" checked/>
+        <span>${grp.label}</span>
+      </div>
+      <div class="legend-children">`;
+      grp.layers.forEach(lyr => {
+        const patType = lyr.key === 'pni' ? 'horizontal' : lyr.key === 'trib' ? 'vertical' : null;
+        let swatch;
+        if (patType) {
+          const pid = `pat-${patType}-leg-${lyr.key}`;
+          const [x1,y1,x2,y2] = patType === 'horizontal' ? ['0','4','14','4'] : ['4','0','4','14'];
+          swatch = `<svg width="14" height="14" style="border:1px solid #555;flex-shrink:0">
+            <defs>
+              <pattern id="${pid}" width="8" height="8" patternUnits="userSpaceOnUse">
+                <rect width="8" height="8" fill="${lyr.color}" opacity="0.15"/>
+                <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${lyr.color}" stroke-width="1"/>
+              </pattern>
+            </defs>
+            <rect width="14" height="14" fill="url(#${pid})"/>
+          </svg>`;
+        } else {
+          swatch = `<div class="legend-box" style="
+            background:${lyr.fillColor || lyr.color};
+            border:2px ${lyr.dashArray ? 'dashed' : 'solid'} ${lyr.color};
+            opacity:0.7"></div>`;
+        }
+        html += `<div class="legend-item" id="legitem-${lyr.key}">
+          <input type="checkbox" id="chk-${lyr.key}" checked style="cursor:pointer"/>
+          ${swatch}
+          <span>${lyr.label}</span>
+        </div>`;
+      });
+      html += `</div></div>`;
+    }
+  });
+
+  div.innerHTML = html;
+
+setTimeout(() => {
+
+  const chkAll = document.getElementById("chk-all");
+
+  document.querySelectorAll(".legend-group-title").forEach(title => {
+
+    title.addEventListener("click", e => {
+
+      // Checkbox : ne pas déclencher le déroulement
+      if (e.target.tagName === "INPUT") return;
+
+      // "Tout afficher / masquer" : pas de déroulement
+      if (title.contains(chkAll)) return;
+
+      // Seule la zone de la flèche permet le déroulement
+      const rect = title.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+
+      if (clickX > 20) return;
+
+      const children = title.parentElement.querySelector(".legend-children");
+
+      if (!children) return;
+
+      const collapsed = title.classList.toggle("collapsed");
+
+      children.style.display = collapsed ? "none" : "";
+
+    });
+
+  });
+
+
+const titleEspaces = document.getElementById("title-g-espaces");
+
+if (titleEspaces) {
+  titleEspaces.addEventListener("click", e => {
+
+    if (e.target.tagName === "INPUT") return;
+
+    activeEspaceFilter = null;
+
+    ESPACE_ORDER.forEach(nom => {
+      const item = document.getElementById(
+        "esplegitem-" + nom.replace(/\W/g, '_')
+      );
+      if (item) item.classList.remove("active");
+    });
+
+    const nomsDisponibles = [...new Set(
+      solutionsData
+        .map(s => s.nom_espace)
+        .filter(Boolean)
+    )];
+
+    updateTableRight(nomsDisponibles.map(nom => ({
+      feature: {
+        properties: {
+          nom_espace: nom
+        }
+      }
+    })));
+
+  });
+}
+
+    // ── Clic figuré espace solutions (tous cliquables) ────
+    ESPACE_ORDER.forEach(nom => {
+      const item = document.getElementById("esplegitem-" + nom.replace(/\W/g,'_'));
+      if (!item) return;
+      item.addEventListener("click", () => {
+        if (activeEspaceFilter === nom) {
+          activeEspaceFilter = null;
+          item.classList.remove("active");
+          // Revenir au tableau issu du clic carte
+          updateTableRight(selectedRight);
+        } else {
+          activeEspaceFilter = nom;
+          ESPACE_ORDER.forEach(n => {
+            const el = document.getElementById("esplegitem-" + n.replace(/\W/g,'_'));
+            if (el) el.classList.remove("active");
+          });
+          item.classList.add("active");
+          updateTableRight(null); // null = mode filtre
+        }
+      });
+    });
+
+    // ── updateCheckAll ─────────────────────────────────────
+    function updateCheckAll() {
+      const allChecked = LEGEND_GROUPS.every(grp => {
+        if (grp.id === 'g-espaces') return map.hasLayer(groups['espaces']);
+        return grp.layers.every(lyr => map.hasLayer(groups[lyr.key]));
+      });
+      const anyChecked = LEGEND_GROUPS.some(grp => {
+        if (grp.id === 'g-espaces') return map.hasLayer(groups['espaces']);
+        return grp.layers.some(lyr => map.hasLayer(groups[lyr.key]));
+      });
+      chkAll.checked       = allChecked;
+      chkAll.indeterminate = !allChecked && anyChecked;
+    }
+
+    // ── chk-all ────────────────────────────────────────────
+    if (chkAll) {
+      chkAll.addEventListener("change", function () {
+        const checked = this.checked;
+        LEGEND_GROUPS.forEach(grp => {
+          const grpChk = document.getElementById(grp.id);
+          if (grpChk) { grpChk.checked = checked; grpChk.indeterminate = false; }
+          if (grp.id === 'g-espaces') {
+            checked ? map.addLayer(groups['espaces']) : map.removeLayer(groups['espaces']);
+          } else {
+            grp.layers.forEach(lyr => {
+              const chk = document.getElementById("chk-" + lyr.key);
+              if (chk) chk.checked = checked;
+              checked ? map.addLayer(groups[lyr.key]) : map.removeLayer(groups[lyr.key]);
+              if (lyr.key === 'parcelle') { parcelleVisible = checked; updateParcelleLabels(); }
+            });
+          }
+        });
+        updateCheckAll();
+        updateAfterLegendToggle();
+      });
+    }
+
+    // ── Groupes et couches individuelles ───────────────────
+    LEGEND_GROUPS.forEach(grp => {
+      const grpChk = document.getElementById(grp.id);
+      if (!grpChk) return;
+
+      if (grp.id === 'g-espaces') {
+        grpChk.addEventListener("change", function () {
+          this.checked ? map.addLayer(groups['espaces']) : map.removeLayer(groups['espaces']);
+          updateCheckAll();
+          updateAfterLegendToggle();
+        });
+      } else {
+        grpChk.addEventListener("change", function () {
+          grp.layers.forEach(lyr => {
+            const chk = document.getElementById("chk-" + lyr.key);
+            if (chk) chk.checked = this.checked;
+            this.checked ? map.addLayer(groups[lyr.key]) : map.removeLayer(groups[lyr.key]);
+            if (lyr.key === 'parcelle') { parcelleVisible = this.checked; updateParcelleLabels(); }
+          });
+          updateCheckAll();
+          updateAfterLegendToggle();
+        });
+
+        grp.layers.forEach(lyr => {
+          const chk = document.getElementById("chk-" + lyr.key);
+          if (!chk) return;
+          chk.addEventListener("change", function () {
+            this.checked ? map.addLayer(groups[lyr.key]) : map.removeLayer(groups[lyr.key]);
+            if (lyr.key === 'parcelle') { parcelleVisible = this.checked; updateParcelleLabels(); }
+            const allC = grp.layers.every(l => document.getElementById("chk-" + l.key)?.checked);
+            const anyC = grp.layers.some(l  => document.getElementById("chk-" + l.key)?.checked);
+            grpChk.checked       = allC;
+            grpChk.indeterminate = !allC && anyC;
+            updateCheckAll();
+            updateAfterLegendToggle();
+          });
+        });
+      }
+    });
+
+    updateCheckAll();
+  }, 0);
+
+  return div;
+};
+legend.addTo(map);
+const legendElement = legend.getContainer();
+const legendContainer = document.getElementById('legend-container');
+
+if (legendElement && legendContainer) {
+  legendContainer.appendChild(legendElement);
+}
+// ════════════════════════════════════════════════════════════
+// GRAS LÉGENDE
+// ════════════════════════════════════════════════════════════
+
+function updateLegendBold() {
+  const selectedKeys = new Set([...selectedLeft, ...selectedRight].map(l => l.layerGroupKey));
+  LEGEND_GROUPS.forEach(grp => {
+    grp.layers.forEach(lyr => {
+      const item = document.getElementById("legitem-" + lyr.key);
+      if (!item) return;
+      const span      = item.querySelector("span");
+      const isChecked = document.getElementById("chk-" + lyr.key)?.checked;
+      const isSel     = selectedKeys.has(lyr.key);
+      if (span) span.style.fontWeight = (isSel && isChecked) ? "bold" : "normal";
+    });
+  });
+}
+
+// ════════════════════════════════════════════════════════════
+// TOOLTIP MULTI-COUCHES
+// ════════════════════════════════════════════════════════════
+
+const multiTooltip = L.tooltip({ sticky: true, direction: "top", opacity: 0.95 });
+let tooltipActive = false;
+
+map.on('mousemove', e => {
+  const p = turf.point([e.latlng.lng, e.latlng.lat]);
+  const labels = [];
+  [...layersByPanel.left, ...layersByPanel.right].forEach(geoLayer => {
+    geoLayer.eachLayer(l => {
+      try {
+        const parentGroup = Object.entries(groups).find(([, g]) => g.hasLayer(geoLayer));
+        if (!parentGroup || !map.hasLayer(groups[parentGroup[0]])) return;
+        if (turf.booleanPointInPolygon(p, l.feature)) labels.push(l.tooltipLabel);
+      } catch (_) {}
+    });
+  });
+  if (labels.length) {
+    multiTooltip.setLatLng(e.latlng).setContent(labels.join("<br>"));
+    if (!tooltipActive) { multiTooltip.addTo(map); tooltipActive = true; }
+  } else if (tooltipActive) {
+    map.removeLayer(multiTooltip);
+    tooltipActive = false;
+  }
+});
+map.on('mouseout', () => { map.removeLayer(multiTooltip); tooltipActive = false; });
+
+// ════════════════════════════════════════════════════════════
+// CLIC CARTE
+// ════════════════════════════════════════════════════════════
+
+map.on('click', e => {
+  // Réinitialiser filtre espace si actif
+  if (activeEspaceFilter) {
+    activeEspaceFilter = null;
+    ESPACE_ORDER.forEach(n => {
+      const el = document.getElementById("esplegitem-" + n.replace(/\W/g,'_'));
+      if (el) el.classList.remove("active");
+    });
+  }
+
+  // Stocker le point de clic pour les recalculs futurs
+  clickPoint = turf.point([e.latlng.lng, e.latlng.lat]);
+
+  if (clickMarker) map.removeLayer(clickMarker);
+  clickMarker = L.circleMarker([e.latlng.lat, e.latlng.lng], {
+    radius: 6, color: "#333", fillColor: "#fff", fillOpacity: 1, weight: 2
+  }).addTo(map);
+
+  recomputeSelection();
+  applyAllStyles();
+  updateTableLeft(selectedLeft);
+  updateTableRight(selectedRight);
+  updateLegendBold();
+});
+
+// ════════════════════════════════════════════════════════════
+// TABLEAUX
+// ════════════════════════════════════════════════════════════
+
+function sortLayersByScale(layers) {
+  return [...layers].sort((a, b) => {
+    const ia = ACTOR_SORT_ORDER.indexOf(a.layerGroupKey);
+    const ib = ACTOR_SORT_ORDER.indexOf(b.layerGroupKey);
+    return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+  });
+}
+
+function scaleLabel(groupKey) {
+  if (SCALE_ORDER.province.includes(groupKey))    return "Échelle provinciale";
+  if (SCALE_ORDER.commune.includes(groupKey)) return "Échelle communale";
+  return null;
+}
+
+function updateTableLeft(layers) {
+  const el = document.getElementById('table-left');
+  // Filtrer selon les cases cochées
+  const visibleLayers = layers.filter(l => {
+    const chk = document.getElementById("chk-" + l.layerGroupKey);
+    return chk ? chk.checked : true;
+  });
+  if (!visibleLayers.length) { el.innerHTML = "<em>Pour afficher les informations des acteurs de la province d'Ifrane, cliquez sur leur périmètre sur la carte.</em>"; return; }
+  const sorted = sortLayersByScale(visibleLayers);
+  let html = "<table>";
+  let currentScale = null;
+  sorted.forEach(l => {
+    const scale = scaleLabel(l.layerGroupKey);
+    if (scale && scale !== currentScale) {
+  currentScale = scale;
+  html += `<tr><td colspan="3" style="background:#ddd;font-weight:bold;font-size:12px;
+    padding:3px 5px;border-top:none">${scale}</td></tr>
+    <tr><th></th><th>Acteur</th><th>Missions</th></tr>`;
+}
+    const color = l.layerColor || "#ccc";
+const fillColor = l.layerFillColor || color;
+const dashArray = l.layerDashArray || null;
+
+let swatch;
+
+if (l.hasPattern) {
+
+  const patType = l.hasPattern;
+  const pid = `table-pat-${patType}-${l.layerGroupKey}`;
+
+  const [x1, y1, x2, y2] =
+    patType === 'horizontal'
+      ? ['0','4','14','4']
+      : ['4','0','4','14'];
+
+  swatch = `<svg width="14" height="14" style="border:1px solid #555;flex-shrink:0">
+    <defs>
+      <pattern id="${pid}" width="8" height="8" patternUnits="userSpaceOnUse">
+        <rect width="8" height="8" fill="${color}" opacity="0.15"/>
+        <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"
+              stroke="${color}" stroke-width="1"/>
+      </pattern>
+    </defs>
+    <rect width="14" height="14" fill="url(#${pid})"/>
+  </svg>`;
+
+} else {
+
+  swatch = `<div style="
+    width:14px;
+    height:14px;
+    box-sizing:border-box;
+    background:${fillColor === 'transparent' ? 'white' : fillColor};
+    border:2px ${dashArray ? 'dashed' : 'solid'} ${color};
+    flex-shrink:0;
+  "></div>`;
+}
+
+html += `<tr class="actor-row" data-index="${sorted.indexOf(l)}">
+
+  <td style="width:24px; background:${color}30; padding:5px;">
+    ${swatch}
+  </td>
+
+  <td style="background:${color}30;">
+    ${l.feature.properties.acteur || ''}
+  </td>
+
+  <td style="background:${color}30;">
+    ${l.feature.properties.missions || ''}
+  </td>
+
+</tr>`;
+  });
+  html += "</table>";
+  el.innerHTML = html;
+  el.querySelectorAll(".actor-row").forEach(row => {
+
+  const layer = sorted[Number(row.dataset.index)];
+
+  row.addEventListener("mouseenter", () => {
+    hoveredActor = layer;
+    applyAllStyles();
+  });
+
+  row.addEventListener("mouseleave", () => {
+    hoveredActor = null;
+    applyAllStyles();
+  });
+
+});
+}
+
+// layers = tableau de layers (clic carte) | null = mode filtre légende
+function updateTableRight(layers) {
+  const el = document.getElementById('table-right');
+
+  let nomsCliques;
+  if (activeEspaceFilter) {
+    nomsCliques = [activeEspaceFilter];
+  } else {
+    if (!layers || !layers.length) {
+      el.innerHTML = "<em>Pour afficher les propositions d'action, cliquez sur un espace dans la légende ou sur son périmètre sur la carte.</em>";
+      selectedSolutions = [];
+      return;
+    }
+    nomsCliques = [...new Set(
+      layers.map(l => l.feature?.properties?.nom_espace).filter(Boolean)
+    )].sort((a, b) => ESPACE_ORDER.indexOf(a) - ESPACE_ORDER.indexOf(b));
+  }
+
+  selectedSolutions = solutionsData.filter(s => nomsCliques.includes(s.nom_espace));
+  if (!selectedSolutions.length) { el.innerHTML = "<em>Aucune solution associée</em>"; return; }
+
+  let html = "";
+  nomsCliques.forEach(nom => {
+    const sols  = selectedSolutions.filter(s => s.nom_espace === nom);
+    if (!sols.length) return;
+    const color = ESPACE_COLORS[nom] || "#555";
+    html += `<div class="espace-header" style="border-left-color:${color}">${nom}</div>`;
+    html += `<table><tr>
+      <th>Solution</th><th>Statut</th><th>Description</th><th>Perception</th><th>Fiche</th>
+    </tr>`;
+    sols.forEach(s => {
+      const badgeClass =
+        s.statut === "envisagée"       ? "badge-envisagee"
+        : s.statut === "mise en place" ? "badge-mise-en-place"
+        : "badge-autre";
+      html += `<tr>
+        <td><b>${s.nom_solution     || ''}</b></td>
+        <td><span class="badge ${badgeClass}">${s.statut || ''}</span></td>
+        <td>${s.description_courte  || ''}</td>
+        <td>${s.perception_solution || ''}</td>
+        <td>${s.lien_fiche_solution
+          ? `<a class="fiche-link" href="${s.lien_fiche_solution}" target="_blank">🔗 Fiche</a>`
+          : ''}</td>
+      </tr>`;
+    });
+    html += "</table>";
+  });
+  el.innerHTML = html;
+}
+
+// ════════════════════════════════════════════════════════════
+// EXPORT CSV
+// ════════════════════════════════════════════════════════════
+
+function exportCSV(side) {
+  if (side === 'left') {
+    if (!selectedLeft.length) { alert("Aucune donnée à exporter."); return; }
+    const rows = [["Acteur","Missions"]].concat(
+      selectedLeft.map(l => [
+        `"${(l.feature.properties.acteur   || '').replace(/"/g,'""')}"`,
+        `"${(l.feature.properties.missions || '').replace(/"/g,'""')}"`
+      ])
+    );
+    dlCSV(rows, "export_institutions");
+  } else {
+    if (!selectedSolutions.length) { alert("Aucune donnée à exporter."); return; }
+    const cols = ["nom_espace","nom_solution","statut","description_courte",
+                  "perception_solution","lien_fiche_solution"];
+    const rows = [cols].concat(
+      selectedSolutions.map(s => cols.map(c => `"${(s[c] || '').replace(/"/g,'""')}"`))
+    );
+    dlCSV(rows, "export_solutions");
+  }
+}
+
+function dlCSV(rows, filename) {
+  const csv = "\uFEFF" + rows.map(r => r.join(";")).join("\n");
+  const a   = document.createElement("a");
+  a.href    = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
+  a.download = `${filename}_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+}
+
+</script>
+
+<script>
+// ════════════════════════════════════════════════════════════
+// SCROLLBAR PERSONNALISÉE
+// ════════════════════════════════════════════════════════════
+const scrollbar = document.getElementById('custom-scrollbar');
+const thumb     = document.getElementById('custom-scrollbar-thumb');
+function updateScrollbar() {
+  const sh = document.documentElement.scrollHeight, vh = window.innerHeight, st = window.scrollY;
+  const th = Math.max(50, (vh/sh)*vh);
+  const maxT = vh-th, maxS = sh-vh;
+  thumb.style.height = th + 'px';
+  thumb.style.top    = (maxS > 0 ? (st/maxS)*maxT : 0) + 'px';
+}
+window.addEventListener('scroll', updateScrollbar);
+window.addEventListener('resize', updateScrollbar);
+scrollbar.addEventListener('mousedown', e => {
+  if (e.target !== thumb) {
+    const maxS = document.documentElement.scrollHeight - window.innerHeight;
+    window.scrollTo({ top: (e.clientY / window.innerHeight) * maxS, behavior: 'instant' });
+  }
+});
+let dragging = false, startY = 0, startScroll = 0;
+thumb.addEventListener('mousedown', e => { dragging = true; startY = e.clientY; startScroll = window.scrollY; e.preventDefault(); });
+document.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  const sh = document.documentElement.scrollHeight, vh = window.innerHeight;
+  const th = Math.max(50, (vh/sh)*vh);
+  const maxT = vh-th, maxS = sh-vh;
+  window.scrollTo({ top: startScroll + ((e.clientY-startY)/maxT)*maxS, behavior: 'instant' });
+});
+document.addEventListener('mouseup', () => { dragging = false; });
+updateScrollbar();
+</script>
+
+</body>
+</html>

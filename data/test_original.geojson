@@ -1,0 +1,8 @@
+{
+"type": "FeatureCollection",
+"name": "test",
+"features": [
+{ "type": "Feature", "properties": { "acteur": "Institution B", "missions": "Protection environnementale" }, "geometry": { "type": "Polygon", "coordinates": [ [ [ -5.209503294275533, 33.201329044876729 ], [ -5.059503294275533, 33.201329044876729 ], [ -5.059503294275533, 33.301329044876731 ], [ -5.209503294275533, 33.301329044876731 ], [ -5.209503294275533, 33.201329044876729 ] ] ] } },
+{ "type": "Feature", "properties": { "acteur": "Institution A", "missions": "Gestion territoriale" }, "geometry": { "type": "Polygon", "coordinates": [ [ [ -5.093217602028064, 33.114287697727768 ], [ -4.943217602028064, 33.114287697727768 ], [ -4.943217602028064, 33.214287697727769 ], [ -5.093217602028064, 33.214287697727769 ], [ -5.093217602028064, 33.114287697727768 ] ] ] } }
+]
+}
